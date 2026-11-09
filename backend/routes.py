@@ -90,7 +90,7 @@ def update_song(id):
     song.pop('_id', None)
     song['id'] = id
     result = db.songs.replace_one({'id': id}, song)
-    return (jsonify(song), 200) if result.matched_count else (jsonify(message='Song not found'), 404)
+    return (jsonify(song), 201) if result.matched_count else (jsonify(message='Song not found'), 404)
 
 @app.route('/song/<int:id>', methods=['DELETE'])
 def delete_song(id):
