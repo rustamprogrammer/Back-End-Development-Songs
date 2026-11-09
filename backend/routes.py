@@ -34,7 +34,7 @@ else:
     url = f"mongodb://{mongodb_service}"
 
 
-print(f"connecting to url: {url}")
+# Never log database credentials.
 
 try:
     client = MongoClient(url)
@@ -42,8 +42,9 @@ except OperationFailure as e:
     app.logger.error(f"Authentication error: {str(e)}")
 
 db = client.songs
-db.songs.drop()
-db.songs.insert_many(songs_list)
+db.songs.create_index('id', unique=True)
+for song in songs_list:
+    db.songs.update_one({'id': song['id']}, {'$setOnInsert': song}, upsert=True)
 
 def parse_json(data):
     return json.loads(json_util.dumps(data))
@@ -51,3 +52,47 @@ def parse_json(data):
 ######################################################################
 # INSERT CODE HERE
 ######################################################################
+
+@app.route('/health')
+def health():
+    client.admin.command('ping')
+    return jsonify(status='OK'), 200
+
+@app.route('/count')
+def count():
+    return jsonify(length=db.songs.count_documents({})), 200
+
+@app.route('/song', methods=['GET'])
+def get_songs():
+    return jsonify(list(db.songs.find({}, {'_id': 0}))), 200
+
+@app.route('/song/<int:id>', methods=['GET'])
+def get_song(id):
+    song = db.songs.find_one({'id': id}, {'_id': 0})
+    return (jsonify(song), 200) if song else (jsonify(message='Song not found'), 404)
+
+@app.route('/song', methods=['POST'])
+def create_song():
+    song = request.get_json(silent=True)
+    if not isinstance(song, dict) or not isinstance(song.get('id'), int):
+        return jsonify(message='A JSON object with an integer id is required'), 400
+    if db.songs.find_one({'id': song['id']}):
+        return jsonify(Message=f"song with id {song['id']} already present"), 302
+    song.pop('_id', None)
+    db.songs.insert_one(dict(song))
+    return jsonify(song), 201
+
+@app.route('/song/<int:id>', methods=['PUT'])
+def update_song(id):
+    song = request.get_json(silent=True)
+    if not isinstance(song, dict):
+        return jsonify(message='A JSON object is required'), 400
+    song.pop('_id', None)
+    song['id'] = id
+    result = db.songs.replace_one({'id': id}, song)
+    return (jsonify(song), 200) if result.matched_count else (jsonify(message='Song not found'), 404)
+
+@app.route('/song/<int:id>', methods=['DELETE'])
+def delete_song(id):
+    result = db.songs.delete_one({'id': id})
+    return ('', 204) if result.deleted_count else (jsonify(message='Song not found'), 404)
